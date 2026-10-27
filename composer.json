@@ -1,12 +1,27 @@
 {
     "name": "saraivaruas/dte-chile",
-    "description": "Librería PHP sin dependencias para generar, timbrar, firmar y enviar Documentos Tributarios Electrónicos (DTE) al SII de Chile. Software libre MIT.",
+    "description": "Librería PHP de facturación electrónica para Chile (alto nivel): emite facturas, boletas, guías y notas al SII. Sin dependencias, MIT.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["chile", "sii", "dte", "factura-electronica", "boleta-electronica", "xmldsig", "timbre", "caf"],
+    "keywords": [
+        "chile",
+        "sii",
+        "dte",
+        "libreria",
+        "facturacion-electronica",
+        "factura-electronica",
+        "boleta-electronica",
+        "e-invoicing",
+        "xmldsig",
+        "timbre",
+        "caf"
+    ],
     "homepage": "https://github.com/saraivaruas/dte-chile",
     "authors": [
-        {"name": "Jorge Luis Saraiva Ruas", "homepage": "https://github.com/saraivaruas"}
+        {
+            "name": "Jorge Luis Saraiva Ruas",
+            "homepage": "https://github.com/saraivaruas"
+        }
     ],
     "require": {
         "php": ">=8.3",
