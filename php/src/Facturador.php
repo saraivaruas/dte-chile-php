@@ -75,6 +75,17 @@ final class Facturador
         );
     }
 
+    /**
+     * Representación impresa en PDF (Carta) con el timbre PDF417. Usa la resolución del Facturador para la leyenda del timbre.
+     *
+     * @param array<string, mixed> $opciones unidadSii (por defecto SANTIAGO), cedible (true en facturas), resolucionNumero y resolucionFecha.
+     * @return string Bytes del archivo PDF.
+     */
+    public function pdf(DocumentoEmitido $documento, array $opciones = []): string
+    {
+        return (new RepresentacionImpresa())->generar($documento, $opciones + ['resolucionNumero' => $this->resolucion['numero'], 'resolucionFecha' => $this->resolucion['fecha']]);
+    }
+
     /** Tipos de documento para los que hay un CAF cargado. @return int[] */
     public function tiposDisponibles(): array
     {

@@ -37,7 +37,7 @@ final class Pdf417Encoder
     private const TEXT_LATCH = 900; // también el codeword de relleno (padding)
     private const BYTE_LATCH = 901;
     private const BYTE_LATCH_SIX = 924; // en vez de BYTE_LATCH cuando el largo de los datos es múltiplo de 6
-    private const MIN_X_DIM_MM = 0.1702; // 6,7 mils mínimo exigido por el Instructivo Técnico
+    public const MIN_X_DIM_MM = 0.1702; // 6,7 mils mínimo exigido por el Instructivo Técnico
     private const QUIET_ZONE_MM = 6.35; // 0,25 pulgadas mínimo exigido en los 4 lados
 
     /** @var int[][] Patrones de barra/espacio (17 bits) por cluster (0-2) y codeword (0-928). */

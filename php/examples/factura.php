@@ -13,3 +13,5 @@ $doc = $f->factura(clienteEjemplo(), [
     new Linea('Capacitación exenta de IVA', 1, 50000, exento: true),
 ]);
 guardarYEnviar($f, [$doc], $argv);
+file_put_contents("salida/{$doc->tipo}-{$doc->folio}.pdf", $f->pdf($doc, ['cedible' => true]));
+echo "Representación impresa -> salida/{$doc->tipo}-{$doc->folio}.pdf\n";
