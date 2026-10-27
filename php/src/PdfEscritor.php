@@ -23,12 +23,68 @@ final class PdfEscritor
 
     /** @var string[] Contenido de cada página. */
     private array $paginas = [];
+    /** @var array<int, array{datos: string, ancho: int, alto: int, espacio: string}> Imágenes JPEG incluidas. */
+    private array $imagenes = [];
     private int $actual = -1;
 
     public function nuevaPagina(): void
     {
         $this->paginas[] = '';
         $this->actual = count($this->paginas) - 1;
+    }
+
+    /**
+     * Registra una imagen JPEG y devuelve su número. Solo JPEG (el PDF lo incrusta tal cual, sin decodificarlo).
+     *
+     * @return array{0: int, 1: int, 2: int} [número de imagen, ancho px, alto px]
+     */
+    public function agregarJpeg(string $bytes): array
+    {
+        if (!str_starts_with($bytes, "\xFF\xD8")) {
+            throw new \InvalidArgumentException('El logotipo debe ser una imagen JPEG.');
+        }
+        $i = 2;
+        $n = strlen($bytes);
+        while ($i + 9 < $n) {
+            if ($bytes[$i] !== "\xFF") {
+                $i++;
+                continue;
+            }
+            $marca = ord($bytes[$i + 1]);
+            if ($marca === 0xFF) {
+                $i++;
+                continue;
+            }
+            if (in_array($marca, [0xD8, 0x01], true) || ($marca >= 0xD0 && $marca <= 0xD7)) {
+                $i += 2;
+                continue;
+            }
+            $largo = (ord($bytes[$i + 2]) << 8) | ord($bytes[$i + 3]);
+            if ($marca >= 0xC0 && $marca <= 0xCF && !in_array($marca, [0xC4, 0xC8, 0xCC], true)) {
+                $alto = (ord($bytes[$i + 5]) << 8) | ord($bytes[$i + 6]);
+                $ancho = (ord($bytes[$i + 7]) << 8) | ord($bytes[$i + 8]);
+                $comp = ord($bytes[$i + 9]);
+                $espacio = [1 => 'DeviceGray', 3 => 'DeviceRGB'][$comp] ?? throw new \InvalidArgumentException('El JPEG del logotipo debe ser en escala de grises o RGB (no CMYK).');
+                if ($ancho < 1 || $alto < 1) {
+                    break;
+                }
+                $this->imagenes[] = ['datos' => $bytes, 'ancho' => $ancho, 'alto' => $alto, 'espacio' => $espacio];
+
+                return [count($this->imagenes), $ancho, $alto];
+            }
+            $i += 2 + $largo;
+        }
+
+        throw new \InvalidArgumentException('No se pudo leer el tamaño del JPEG del logotipo (archivo dañado).');
+    }
+
+    /** Dibuja una imagen registrada con {@see agregarJpeg()} dentro del rectángulo dado (sin deformarla; centrada). */
+    public function imagen(int $numero, int $anchoPx, int $altoPx, float $x, float $yMm, float $anchoMax, float $altoMax): void
+    {
+        $razon = min($anchoMax / $anchoPx, $altoMax / $altoPx);
+        $w = $anchoPx * $razon;
+        $h = $altoPx * $razon;
+        $this->emitir(sprintf('q %s 0 0 %s %s %s cm /Im%d Do Q', $this->mm($w), $this->mm($h), $this->mm($x + ($anchoMax - $w) / 2), $this->y($yMm + ($altoMax + $h) / 2), $numero));
     }
 
     public function numeroPaginas(): int
@@ -204,13 +260,20 @@ final class PdfEscritor
         $objetos[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
         $w = sprintf('%.2F', self::ANCHO_MM * self::PT);
         $h = sprintf('%.2F', self::ALTO_MM * self::PT);
+        $idInfo = 5 + $n * 2;
+        $xobj = '';
+        if ($this->imagenes !== []) {
+            $xobj = ' /XObject << ' . implode(' ', array_map(fn (int $k): string => '/Im' . ($k + 1) . ' ' . ($idInfo + 1 + $k) . ' 0 R', array_keys($this->imagenes))) . ' >>';
+        }
         foreach ($this->paginas as $i => $contenido) {
             $idPagina = 5 + $i * 2;
-            $objetos[$idPagina] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {$w} {$h}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents " . ($idPagina + 1) . ' 0 R >>';
+            $objetos[$idPagina] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {$w} {$h}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>{$xobj} >> /Contents " . ($idPagina + 1) . ' 0 R >>';
             $objetos[$idPagina + 1] = '<< /Length ' . strlen($contenido) . " >>\nstream\n" . $contenido . "endstream";
         }
-        $idInfo = 5 + $n * 2;
         $objetos[$idInfo] = '<< /Title ' . $this->cadena($titulo) . ' /Producer (dte-chile) >>';
+        foreach ($this->imagenes as $k => $im) {
+            $objetos[$idInfo + 1 + $k] = "<< /Type /XObject /Subtype /Image /Width {$im['ancho']} /Height {$im['alto']} /ColorSpace /{$im['espacio']} /BitsPerComponent 8 /Filter /DCTDecode /Length " . strlen($im['datos']) . " >>\nstream\n" . $im['datos'] . "\nendstream";
+        }
 
         $pdf = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
         $offsets = [];

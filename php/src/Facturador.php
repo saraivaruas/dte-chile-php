@@ -86,6 +86,27 @@ final class Facturador
         return (new RepresentacionImpresa())->generar($documento, $opciones + ['resolucionNumero' => $this->resolucion['numero'], 'resolucionFecha' => $this->resolucion['fecha']]);
     }
 
+    /**
+     * Envía el documento por correo al receptor (o a quien indique): adjunta el XML firmado (el EnvioDTE que se usa para el intercambio entre contribuyentes) y,
+     * salvo que se pida lo contrario, el PDF de la representación impresa.
+     *
+     * @param string|string[] $para
+     * @param array<string, mixed> $opciones asunto, texto, conPdf (true), logo y unidadSii (se pasan al PDF), flujo (conexión ya abierta, para pruebas)
+     */
+    public function enviarPorCorreo(DocumentoEmitido $documento, string|array $para, ConfigSmtp $smtp, array $opciones = []): void
+    {
+        $para = (array) $para;
+        $base = "{$documento->tipo}-{$documento->folio}";
+        $adjuntos = [['nombre' => "{$base}.xml", 'tipo' => 'application/xml', 'contenido' => (string) $this->sobre([$documento])->saveXML()]];
+        if (($opciones['conPdf'] ?? true) === true) {
+            $adjuntos[] = ['nombre' => "{$base}.pdf", 'tipo' => 'application/pdf', 'contenido' => $this->pdf($documento, array_intersect_key($opciones, ['logo' => 1, 'unidadSii' => 1, 'cedible' => 1]))];
+        }
+        $etiqueta = DocumentType::label($documento->tipo) . " N° {$documento->folio}";
+        $asunto = (string) ($opciones['asunto'] ?? "{$etiqueta} de {$this->emisor->razonSocial}");
+        $texto = (string) ($opciones['texto'] ?? "Estimados,\n\nAdjuntamos la {$etiqueta} emitida por {$this->emisor->razonSocial} (RUT {$this->emisor->rut}).\n\nSaludos cordiales.");
+        Correo::enviar($smtp, $para, Correo::mensaje($smtp, $para, $asunto, $texto, $adjuntos), $opciones['flujo'] ?? null);
+    }
+
     /** Tipos de documento para los que hay un CAF cargado. @return int[] */
     public function tiposDisponibles(): array
     {

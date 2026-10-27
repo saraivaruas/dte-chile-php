@@ -16,7 +16,8 @@ use DOMElement;
  * Opciones:
  *   unidadSii         texto de «S.I.I. - ...» (por defecto SANTIAGO)
  *   resolucionNumero  y resolucionFecha (AAAA-MM-DD): para la leyenda «Res. N° de AAAA» del timbre
- *   cedible           true agrega la leyenda «CEDIBLE» y el recuadro de recepción (solo facturas)
+ *   cedible           true agrega la leyenda «CEDIBLE» (solo facturas)
+ *   logo              logotipo de la empresa: ruta de un archivo JPEG o sus bytes (se ubica arriba a la izquierda, sin deformarlo)
  */
 final class RepresentacionImpresa
 {
@@ -34,7 +35,7 @@ final class RepresentacionImpresa
         $d = $this->leer($documento->xml);
         $this->pdf = new PdfEscritor();
         $this->pdf->nuevaPagina();
-        $y = $this->encabezado($d, (string) ($opciones['unidadSii'] ?? 'SANTIAGO'));
+        $y = $this->encabezado($d, (string) ($opciones['unidadSii'] ?? 'SANTIAGO'), $this->cargarLogo($opciones['logo'] ?? null));
         $y = $this->receptor($d, $y);
         $y = $this->referencias($d, $y);
         $y = $this->detalle($d, $y);
@@ -96,12 +97,30 @@ final class RepresentacionImpresa
         ];
     }
 
-    /** @param array<string, mixed> $d */
-    private function encabezado(array $d, string $unidadSii): float
+    /** @return array{0: int, 1: int, 2: int}|null */
+    private function cargarLogo(mixed $logo): ?array
+    {
+        if ($logo === null || $logo === '') {
+            return null;
+        }
+        $bytes = is_string($logo) && !str_starts_with($logo, "\xFF\xD8") && is_file($logo) ? (string) file_get_contents($logo) : (string) $logo;
+
+        return $this->pdf->agregarJpeg($bytes);
+    }
+
+    /**
+     * @param array<string, mixed> $d
+     * @param array{0: int, 1: int, 2: int}|null $logo
+     */
+    private function encabezado(array $d, string $unidadSii, ?array $logo = null): float
     {
         $p = $this->pdf;
         $e = $d['emisor'];
         $izq = self::MARGEN;
+        if ($logo !== null) {
+            $p->imagen($logo[0], $logo[1], $logo[2], self::MARGEN, self::MARGEN + 1, 34.0, 24.0);
+            $izq = self::MARGEN + 38.0;
+        }
         $boxW = 72.0;
         $boxX = PdfEscritor::ANCHO_MM - self::MARGEN - $boxW;
         $anchoEmisor = $boxX - $izq - 6;

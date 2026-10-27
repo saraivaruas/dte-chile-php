@@ -23,9 +23,10 @@ function verificaPdf(string $pdf): void
     }
     preg_match_all('/\/Length (\d+) >>\nstream\n/', $pdf, $len, PREG_OFFSET_CAPTURE);
     foreach ($len[1] as $i => [$largo, $pos]) {
-        $ini = $pos + strlen("{$largo} >>\nstream\n") + strlen('/Length ') - strlen('/Length ');
-        $flujo = substr($pdf, strpos($pdf, "stream\n", $pos) + 7, (int) $largo);
-        afirma(str_ends_with($flujo, "\n") && substr($pdf, strpos($pdf, "stream\n", $pos) + 7 + (int) $largo, 9) === 'endstream', 'El largo del flujo ' . $i . ' no coincide.');
+        $ini = strpos($pdf, "stream\n", $pos) + 7;
+        $despues = substr($pdf, $ini + (int) $largo, 10);
+        // Los flujos de contenido incluyen su salto de línea final en el largo; las imágenes lo llevan aparte (permitido por la especificación).
+        afirma(str_starts_with($despues, 'endstream') || str_starts_with($despues, "\nendstream"), 'El largo del flujo ' . $i . ' no coincide.');
     }
 }
 
