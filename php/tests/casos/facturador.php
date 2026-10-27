@@ -111,3 +111,16 @@ prueba('Facturador: enviar autentica una vez, sube el sobre y devuelve el trackI
     igual(4, count($log), 'solo una autenticación (2 llamadas) + 2 subidas');
     afirma(in_array('Cookie: TOKEN=TKN', $log[2]['headers'], true), 'Debe subir con el token.');
 });
+prueba('Facturador::probarConexion informa por servicio, sin lanzar y sin exponer tokens', function (): void {
+    [$sii] = clienteFalso([
+        ['status' => 200, 'body' => soapRetorno('getSeed', respSii('<ESTADO>00</ESTADO>', '<SEMILLA>1</SEMILLA>'))],
+        ['status' => 200, 'body' => soapRetorno('getToken', respSii('<ESTADO>00</ESTADO>', '<TOKEN>SECRETO</TOKEN>'))],
+        ['status' => 200, 'body' => respSii('<ESTADO>-3</ESTADO><GLOSA>Servicio caído</GLOSA>')],
+    ]);
+    [$f] = facturador([], $sii);
+    $r = $f->probarConexion();
+    afirma($r->facturas && !$r->boletas && !$r->ok(), 'Facturas OK y boletas con falla.');
+    igual('11111111-1', $r->rutTitular, 'titular');
+    afirma(str_contains($r->errores['boletas'] ?? '', 'Servicio caído'), 'Debe traer el motivo del SII.');
+    afirma(!str_contains(json_encode($r->errores), 'SECRETO'), 'No debe filtrar el token.');
+});

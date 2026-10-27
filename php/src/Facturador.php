@@ -35,7 +35,7 @@ final class Facturador
         private readonly Emisor $emisor,
         private readonly Certificate $certificado,
         private readonly FolioStore $folios,
-        string $ambiente = SiiClient::CERTIFICACION,
+        private readonly string $ambiente = SiiClient::CERTIFICACION,
         private readonly array $resolucion = ['fecha' => '2026-01-01', 'numero' => 0],
         ?SiiClient $sii = null,
     ) {
@@ -50,6 +50,27 @@ final class Facturador
         $this->cafs[$caf->documentType()] = $caf;
 
         return $this;
+    }
+
+    /**
+     * Comprueba la conexión con el SII SIN enviar ningún documento ni necesitar CAF: autentica (semilla firmada → token) en el servicio de facturas
+     * y en el de boletas, y dice si el SII aceptó el certificado. Nunca lanza por un fallo del SII: lo informa en el resultado.
+     */
+    public function probarConexion(): ResultadoConexion
+    {
+        $errores = [];
+        foreach (['facturas' => fn () => $this->tokenDte = $this->sii->authenticate($this->certificado), 'boletas' => fn () => $this->tokenBoleta = $this->sii->authenticateBoleta($this->certificado)] as $servicio => $autenticar) {
+            try {
+                $autenticar();
+            } catch (\Throwable $e) {
+                $errores[$servicio] = $e->getMessage();
+            }
+        }
+
+        return new ResultadoConexion(
+            $this->ambiente, !isset($errores['facturas']), !isset($errores['boletas']),
+            $this->certificado->subjectRut() ?? '', $this->certificado->notAfter(), $errores,
+        );
     }
 
     /** Tipos de documento para los que hay un CAF cargado. @return int[] */

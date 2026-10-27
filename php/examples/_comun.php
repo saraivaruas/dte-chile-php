@@ -36,16 +36,19 @@ function entorno(string $nombre, ?string $defecto = null): string
     return $v;
 }
 
-function crearFacturador(): Facturador
+/** @param bool $soloConexion Para probarConexion(): no exige datos de la empresa ni CAF (usa el RUT del certificado). */
+function crearFacturador(bool $soloConexion = false): Facturador
 {
     $cert = Certificate::fromPkcs12((string) file_get_contents(entorno('DTE_PFX')), entorno('DTE_PFX_CLAVE'));
-    $emisor = new Emisor(entorno('DTE_EMISOR_RUT'), entorno('DTE_EMISOR_RAZON'), entorno('DTE_EMISOR_GIRO'), (int) entorno('DTE_EMISOR_ACTECO'));
+    $emisor = $soloConexion
+        ? new Emisor($cert->subjectRut() ?? '1-9', 'Prueba de conexión', 'Prueba', 1)
+        : new Emisor(entorno('DTE_EMISOR_RUT'), entorno('DTE_EMISOR_RAZON'), entorno('DTE_EMISOR_GIRO'), (int) entorno('DTE_EMISOR_ACTECO'));
     $ambiente = entorno('DTE_AMBIENTE', 'certificacion') === 'produccion' ? SiiClient::PRODUCCION : SiiClient::CERTIFICACION;
     $f = new Facturador(
         $emisor, $cert, new ArchivoFolios(entorno('DTE_FOLIOS', getcwd() . '/folios.json')), $ambiente,
         ['fecha' => entorno('DTE_RES_FECHA', '2026-01-01'), 'numero' => (int) entorno('DTE_RES_NUMERO', '0')],
     );
-    foreach (glob(rtrim(entorno('DTE_CAF_DIR'), '/') . '/*.xml') ?: [] as $archivo) {
+    foreach ($soloConexion ? [] : (glob(rtrim(entorno('DTE_CAF_DIR'), '/') . '/*.xml') ?: []) as $archivo) {
         $f->agregarCaf(Caf::fromXml((string) file_get_contents($archivo)));
     }
 
