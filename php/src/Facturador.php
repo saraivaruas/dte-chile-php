@@ -27,6 +27,8 @@ final class Facturador
     private ?string $tokenDte = null;
     private ?string $tokenBoleta = null;
     private readonly SiiClient $sii;
+    private int $reintentos = 2;
+    private int $esperaMs = 500;
 
     /**
      * @param array{fecha: string, numero: int} $resolucion Resolución del SII que autoriza al emisor (numero 0 si la autorización fue por internet).
@@ -177,6 +179,95 @@ final class Facturador
             $receptor !== null ? Rut::toDteFormat($receptor->rut) : BoletaBuilder::RUT_GENERICO,
             $firmado, Pdf417Encoder::tedToBytes($ted),
         );
+    }
+
+    /** Cuántas veces reintentar un envío ante fallos temporales (red, SII caído) y cuánto esperar entre intentos (se duplica cada vez). */
+    public function reintentos(int $veces, int $esperaMs = 500): self
+    {
+        $this->reintentos = max(0, $veces);
+        $this->esperaMs = max(0, $esperaMs);
+
+        return $this;
+    }
+
+    /**
+     * Emite (construye, timbra y firma) y envía al SII en una sola llamada. Nunca lanza por un fallo del SII o de la red: el resultado trae el estado
+     * y qué hacer. Si el envío no llegó, el documento queda emitido (el folio ya se usó) y se reenvía con {@see reenviar()}.
+     *
+     * @param Linea[] $lineas
+     * @param Referencia[] $referencias
+     * @param array<string, mixed> $opciones
+     */
+    public function emitirYEnviar(int $tipo, ?Receptor $receptor, array $lineas, array $referencias = [], array $opciones = []): ResultadoEmision
+    {
+        return $this->reenviar($this->emitir($tipo, $receptor, $lineas, $referencias, $opciones));
+    }
+
+    /** Envía un documento ya emitido (por ejemplo, uno que quedó en estado Emitido por una caída del SII), con reintentos ante fallos temporales. */
+    public function reenviar(DocumentoEmitido $documento): ResultadoEmision
+    {
+        $intentos = 0;
+        $espera = $this->esperaMs;
+        $renovoToken = false;
+        while (true) {
+            $intentos++;
+            try {
+                $envio = $this->enviar([$documento]);
+
+                return new ResultadoEmision($documento, EstadoDocumento::Enviado, $envio->trackId, '', $intentos);
+            } catch (\Throwable $e) {
+                $original = $e->getMessage();
+                if (stripos($original, 'STATUS=5') !== false && !$renovoToken) { // sesión vencida: renovar una vez
+                    $renovoToken = true;
+                    $this->tokenDte = $this->tokenBoleta = null;
+                    continue;
+                }
+                if (MensajesSii::esTemporal($original) && $intentos <= $this->reintentos) {
+                    usleep($espera * 1000);
+                    $espera *= 2;
+                    continue;
+                }
+                $temporal = MensajesSii::esTemporal($original);
+
+                return new ResultadoEmision(
+                    $documento, $temporal ? EstadoDocumento::Emitido : EstadoDocumento::Rechazado, null, MensajesSii::explicar($original), $intentos, $original,
+                );
+            }
+        }
+    }
+
+    /** Consulta al SII y devuelve el resultado actualizado (aceptado, con reparos, rechazado o aún en proceso). */
+    public function consultar(ResultadoEmision $resultado): ResultadoEmision
+    {
+        if ($resultado->trackId === null) {
+            return $resultado;
+        }
+        try {
+            if ($resultado->documento->esBoleta()) {
+                $r = $this->estadoEnvioBoleta($resultado->trackId);
+                $estado = (string) ($r['estado'] ?? '');
+                $est = $r['estadistica'][0] ?? [];
+                $acept = (int) ($est['aceptados'] ?? 0);
+                $rech = (int) ($est['rechazados'] ?? 0);
+                $rep = (int) ($est['reparos'] ?? 0);
+            } else {
+                $r = $this->estadoEnvio($resultado->trackId);
+                $estado = (string) $r['estado'];
+                $acept = (int) ($r['aceptados'] ?? 0);
+                $rech = (int) ($r['rechazados'] ?? 0);
+                $rep = (int) ($r['reparos'] ?? 0);
+            }
+        } catch (\Throwable $e) {
+            return $resultado->conEstado($resultado->estado, MensajesSii::explicar($e->getMessage()), $e->getMessage());
+        }
+
+        return match (true) {
+            in_array($estado, ['RSC', 'RFR', 'RCT', 'RCH'], true) => $resultado->conEstado(EstadoDocumento::Rechazado, MensajesSii::explicar($estado), $estado),
+            $estado === 'EPR' && $rech > 0 => $resultado->conEstado(EstadoDocumento::Rechazado, 'El SII procesó el envío y rechazó el documento. Revise el detalle en el sitio del SII con el seguimiento ' . $resultado->trackId . '.', $estado),
+            $estado === 'EPR' && $rep > 0 => $resultado->conEstado(EstadoDocumento::ConReparos, 'El SII aceptó el documento con reparos (observaciones que no lo invalidan).', $estado),
+            $estado === 'EPR' && $acept > 0 => $resultado->conEstado(EstadoDocumento::Aceptado, '', $estado),
+            default => $resultado->conEstado(EstadoDocumento::Enviado, 'El SII aún está procesando el envío. Consulte de nuevo en unos minutos.', $estado),
+        };
     }
 
     /**
