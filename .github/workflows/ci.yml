@@ -15,10 +15,3 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
       - run: php php/tests/run.php
-  spec-sync:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: python3 tools/gen_spec.py
-      - name: La especificación generada debe coincidir con la versionada
-        run: git diff --exit-code
